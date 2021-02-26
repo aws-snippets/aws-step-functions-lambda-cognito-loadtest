@@ -2,6 +2,7 @@ import json
 import boto3
 import os
 import logging
+import lambda_shared
 from botocore.exceptions import ClientError
 
 logger = logging.getLogger(__name__)
@@ -9,44 +10,6 @@ cognitoClient = boto3.client('cognito-idp')
 clientId = os.environ['client_id']
 poolId = os.environ['userpool_id']
 NUMBER_OF_USERS = 10
-
-class SecretsManagerSecret:
-    """Encapsulates Secrets Manager functions."""
-    def __init__(self, secretsmanager_client):
-        """
-        :param secretsmanager_client: A Boto3 Secrets Manager client.
-        """
-        self.secretsmanager_client = secretsmanager_client
-        self.name = None
-
-    def _clear(self):
-        self.name = None
-
-    def setName(self, name):
-        self.name = name
-
-
-    def delete(self, without_recovery):
-        """
-        Deletes the secret.
-
-        :param without_recovery: Permanently deletes the secret immediately when True;
-                                 otherwise, the deleted secret can be restored within
-                                 the recovery window. The default recovery window is
-                                 30 days.
-        """
-        if self.name is None:
-            raise ValueError
-
-        try:
-            self.secretsmanager_client.delete_secret(
-                SecretId=self.name, ForceDeleteWithoutRecovery=without_recovery)
-            logger.info("Deleted secret %s.", self.name)
-            self._clear()
-        except ClientError:
-            logger.exception("Deleted secret %s.", self.name)
-            raise
-
 
 def deleteSecret(userName):
     try:

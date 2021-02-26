@@ -1,7 +1,7 @@
 {
-  "name": "stepfunctions-job-poller",
+  "name": "apiloadtest-framework",
   "version": "1.0.0",
-  "description": "A simple StepFunctions demo",
+  "description": "Serverless API load testing framework",
   "private": true,
   "scripts": {
     "build": "tsc",

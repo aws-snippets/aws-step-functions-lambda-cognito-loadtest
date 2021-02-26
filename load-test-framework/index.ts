@@ -4,15 +4,17 @@ import sfn = require('@aws-cdk/aws-stepfunctions');
 import iam = require('@aws-cdk/aws-iam');
 import tasks = require('@aws-cdk/aws-stepfunctions-tasks');
 import logs = require("@aws-cdk/aws-logs");
+import * as path from 'path';
 import { Key } from '@aws-cdk/aws-kms';
 import { UserPool } from '@aws-cdk/aws-cognito'
-import { CfnParameter, Duration } from '@aws-cdk/core';
+import { CfnParameter } from '@aws-cdk/core';
+import { JsonPath } from '@aws-cdk/aws-stepfunctions';
 
-class JobPollerStack extends cdk.Stack {
+class LoadTestStack extends cdk.Stack {
     constructor(scope: cdk.App, id: string, props: cdk.StackProps = {}) {
         super(scope, id, props);
         
-        const prefix = "ApiLoadTest-"
+        const prefix = "apiloadtest-"
 
         //INPUT PARAMETERS
         const api_url = new CfnParameter(this, "apiGatewayUrl", {
@@ -20,7 +22,7 @@ class JobPollerStack extends cdk.Stack {
           description: "API Gateway URL being load tested."});
 
         //TODO: register with Cognito
-        const customEmailSender = new lambda.Function(this, prefix.concat('customEmailSender'), {
+        const customEmailSender = new lambda.Function(this, 'customEmailSender', {
           code: new lambda.AssetCode('lambda/customEmailSender'),
           handler: 'index.handler',
           runtime: lambda.Runtime.NODEJS_12_X
@@ -41,20 +43,31 @@ class JobPollerStack extends cdk.Stack {
             }});
         
 
-        const createTestUserIds = new lambda.Function(this, prefix.concat('createTestUserIds'), {
+        const createTestUserIds = new lambda.Function(this, 'createTestUserIds', {
                 handler: "lambda_function.lambda_handler",
-                code: new lambda.AssetCode('lambda/createTestUserIds'),
+                code: new lambda.AssetCode(path.join(__dirname, 'lambda/createTestUserIds')),
                 memorySize: 128,
                 runtime: lambda.Runtime.PYTHON_3_8,
                 timeout: cdk.Duration.seconds(3)
         });
+        
+        
+        const secretManagerLayer = new lambda.LayerVersion(this, 'secretsLayer', {
+              code: new lambda.AssetCode(path.join(__dirname, 'layers')),
+              compatibleRuntimes: [lambda.Runtime.PYTHON_3_8],
+              license: 'Apache-2.0',
+              description: 'A layer for secret manager core functions',
+        });
+        
+        secretManagerLayer.addPermission('account-grant', { accountId: this.account });
 
-        const cleanUpTestUsers = new lambda.Function(this, prefix.concat('cleanUpTestUsers'), {
+        const cleanUpTestUsers = new lambda.Function(this, 'cleanUpTestUsers', {
                 handler: "lambda_function.lambda_handler",
-                code: new lambda.AssetCode('lambda/cleanUpTestUsers'),
+                code: new lambda.AssetCode(path.join(__dirname,'lambda/cleanUpTestUsers')),
                 memorySize: 512,
                 runtime: lambda.Runtime.PYTHON_3_8,
                 timeout: cdk.Duration.seconds(600),
+                layers: [secretManagerLayer],
                 environment: {
                         "client_id": appClient.userPoolClientId,
                         "userpool_id": cognitoUserPool.userPoolId
@@ -64,12 +77,13 @@ class JobPollerStack extends cdk.Stack {
         cleanUpTestUsers.role?.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('SecretsManagerReadWrite'));
         cleanUpTestUsers.role?.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonCognitoPowerUser'));
 
-        const createTestUsers = new lambda.Function(this, prefix.concat('createTestUsers'), {
+        const createTestUsers = new lambda.Function(this, 'createTestUsers', {
                 handler: "lambda_function.lambda_handler",
-                code: new lambda.AssetCode('lambda/createTestUsers'),
+                code: new lambda.AssetCode(path.join(__dirname,'lambda/createTestUsers')),
                 memorySize: 856,
                 runtime: lambda.Runtime.PYTHON_3_8,
                 timeout: cdk.Duration.seconds(900),
+                layers: [secretManagerLayer],
                 environment: {
                         "client_id": appClient.userPoolClientId,
                         "userpool_id": cognitoUserPool.userPoolId
@@ -80,12 +94,13 @@ class JobPollerStack extends cdk.Stack {
         createTestUsers.role?.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonCognitoPowerUser'));
         
 
-        const triggerLoadTestPerUser = new lambda.Function(this, prefix.concat('triggerLoadTestPerUser'), {
+        const triggerLoadTestPerUser = new lambda.Function(this, 'triggerLoadTestPerUser', {
                 handler: "lambda_function.lambda_handler",
-                code: new lambda.AssetCode('lambda/triggerLoadTestPerUser'),
+                code: new lambda.AssetCode(path.join(__dirname,'lambda/triggerLoadTestPerUser')),
                 memorySize: 256,
                 runtime: lambda.Runtime.PYTHON_3_8,
                 timeout: cdk.Duration.seconds(900),
+                layers: [secretManagerLayer],
                 environment: {
                         "numberOfCallsPerUser": "100", //Default value, can also be passed in within step function execution input
                         "client_id": appClient.userPoolClientId,
@@ -111,11 +126,13 @@ class JobPollerStack extends cdk.Stack {
         const createUsersJob = new tasks.LambdaInvoke(this, 'CreateTestUsers', {
           lambdaFunction: createTestUsers,
           inputPath: '$.users',
-          resultPath: "$.createResult"
+          resultPath: '$.createResult',
+          outputPath: '$.taskResult.Payload.userNames'
         });
 
         const triggerLoadTestPerUserJob = new tasks.LambdaInvoke(this, 'TriggerLoadTest', {
-          lambdaFunction: triggerLoadTestPerUser
+          lambdaFunction: triggerLoadTestPerUser,
+          resultPath: JsonPath.DISCARD
         });
 
 
@@ -123,11 +140,10 @@ class JobPollerStack extends cdk.Stack {
                 
         const loadTestFanOut = new sfn.Map(this, 'LoadTestFanOut', {
             maxConcurrency: 0,
-            inputPath: '$.taskResult.Payload.userNames'
+            inputPath: '$',
+            resultPath: JsonPath.DISCARD
         });
         
-        //itemsPath: sfn.JsonPath.stringAt('$.taskResult.userNames')
-            
         loadTestFanOut.iterator(definitionIterator);
         
         const jobValidateInput = new sfn.Choice(this, 'Is Input Valid?');
@@ -156,8 +172,7 @@ class JobPollerStack extends cdk.Stack {
             logs: {
                 destination: createUsersAndFanOutLogGroup, 
                 level: sfn.LogLevel.ALL
-            },
-            timeout: Duration.minutes(15)
+            }
         });
 
 
@@ -179,8 +194,7 @@ class JobPollerStack extends cdk.Stack {
             logs: {
                 destination: cleanUpTaskLogGroup, 
                 level: sfn.LogLevel.ALL
-            },
-            timeout: Duration.minutes(10)
+            }
         });
 
         //END
@@ -214,5 +228,5 @@ class JobPollerStack extends cdk.Stack {
 }
 
 const app = new cdk.App();
-new JobPollerStack(app, 'aws-apiloadtest', {description: "Serverless API Gateway Load Testing Framework. Run following CLI command after stack is deployed, Execute following CLI command: aws cognito-idp update-user-pool --user-pool-id INSERT_POOL_ID --lambda-config \"CustomEmailSender={LambdaVersion=V1_0,LambdaArn=INSERT_LAMBDA_ARN},KMSKeyID=KMS_KEY_ARN\""});
+new LoadTestStack(app, 'aws-apiloadtest-framework', {description: "Serverless API Gateway Load Testing Framework."});
 app.synth();

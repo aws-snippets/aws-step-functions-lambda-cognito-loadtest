@@ -15,7 +15,11 @@
         "inlineSourceMap": true,
         "inlineSources": true,
         "experimentalDecorators": true,
-        "strictPropertyInitialization":false
+        "strictPropertyInitialization":false,
+        "baseUrl": ".",
+        "paths": {
+            "/opt/nodejs/*": ["lambda/layers/nodejs/*"]
+        }
     }
 }
 

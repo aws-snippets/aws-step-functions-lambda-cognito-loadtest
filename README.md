@@ -42,9 +42,9 @@ sam deploy -g
 2. Note down the API Gateway URL in the output, we will be using this in one of the steps down below.
 
 
-3. Deploy the AWS CloudFormation template https://github.com/aws-snippets/apiloadtest/blob/main/load-test-framework/cfn.yml   
+3a. Deploy the AWS CloudFormation template https://github.com/aws-snippets/apiloadtest/blob/main/load-test-framework/cfn.yml   
 
-    -  To build this app from terminal, navigate to sub-folder load-test-framework then run the following, replacing API_URL with the value returned from above Step#2:
+3b. Alternatively, to build this app from terminal, navigate to sub-folder load-test-framework then run the following, replacing API_URL with the value returned from above Step#2:
 
 	```bash
 	npm install -g aws-cdk
