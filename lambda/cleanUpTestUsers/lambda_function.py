@@ -2,7 +2,7 @@ import json
 import boto3
 import os
 import logging
-import lambda_shared
+import lambda_shared as layer
 from botocore.exceptions import ClientError
 
 logger = logging.getLogger(__name__)
@@ -13,7 +13,7 @@ NUMBER_OF_USERS = 10
 
 def deleteSecret(userName):
     try:
-        secret = SecretsManagerSecret(boto3.client('secretsmanager'))
+        secret = layer.SecretsManagerSecret(boto3.client('secretsmanager'))
         secret.setName(userName)
         secret.delete(True)
     except Exception as e:

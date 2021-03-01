@@ -3,7 +3,7 @@ import boto3
 import os
 import logging
 import urllib3
-import lambda_shared
+import lambda_shared as layer
 from botocore.exceptions import ClientError
 
 logger = logging.getLogger(__name__)
@@ -15,7 +15,7 @@ NUMBER_OF_CALLS_PER_USER = 100
 
 def getPassword(userName):
     try:
-        secret = SecretsManagerSecret(boto3.client('secretsmanager'))
+        secret = layer.SecretsManagerSecret(boto3.client('secretsmanager'))
         secret.setName(userName)
         value = secret.get_value()
         return value['SecretString']
